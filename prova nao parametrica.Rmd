@@ -1,0 +1,263 @@
+---
+title: "Prova - Não Paramétrica"
+author: 
+  - "Guilherme Vivan"
+  - "00334346"
+date: '`r Sys.Date()`'
+output: 
+  prettydoc::html_pretty:
+   theme: tactile
+---
+
+<style>
+body {
+  font-family: "Times New Roman", serif;
+  font-size: 14pt;
+}
+</style>
+
+```{css, echo = FALSE}
+body {
+  text-align: justify;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = "center")
+```
+
+> This question uses the variables dis (the weighted mean of distances
+to five Boston employment centers) and nox (nitrogen oxides concen-
+tration in parts per 10 million) from the Boston data. We will treat
+dis as the predictor and nox as the response.
+
+```{r biblioteca, echo=FALSE}
+
+library(ISLR2)
+library(kableExtra)
+library(ggplot2)
+library(boot)
+library(gridExtra)
+library(splines)
+
+dados <- Boston
+attach(dados)
+kable(dados[1:10, ], row.names = TRUE)
+
+
+```
+
+## (a) Use the poly() function to fit a cubic polynomial regression to predict nox using dis. Report the regression output, and plot the resulting data and polynomial fits.
+
+```{r questao a}
+
+modelo <- lm(nox ~ poly(dis, 3))
+summary <- summary(modelo)
+
+predicoes <- data.frame(dis = seq(min(dis), max(dis), length.out = 100))
+predicoes$pred <- predict(modelo, newdata = predicoes, se.fit = TRUE)$fit
+predicoes$intervalo <- 2 * predict(modelo, newdata = predicoes, se.fit = TRUE)$se.fit
+
+
+ggplot() +
+  geom_point(data = data.frame(dis = dis, nox = nox), aes(x = dis, y = nox), color = "gray15", size = 2, shape = 16) +
+  geom_line(data = predicoes, aes(x = dis, y = pred), color = "red", size = 1.5) +
+  geom_ribbon(data = predicoes, aes(x = dis, ymin = pred - intervalo, ymax = pred + intervalo), fill = "red", alpha = 0.4) +
+  labs(x = "Distances", y = "NOX", title = "Regressão Polinomial Cúbica") + theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+O modelo de regressão polinomial tem como objetivo substituir um modelo linear $$y_i = \beta_o+\beta_1x_i+\epsilon_i$$ por um modelo que permita produzir uma curva não linear, através de uma função polinomial: $$y_i = \beta_o+\beta_1x_i+\beta_2x_i^2+...+\beta_kx_i^k+\epsilon_i$$.
+
+```{r questao a2}
+
+summary
+
+```
+
+Nesse sentido, produzindo o modelo com a variável resposta *nox* e a variável preditora *dis* elevada na terceira potência, temos como *output* da função *summary* que todas as potências da variável *dis* são significativas. Além disso, temos um $R^2$ de `r summary$r.squared`, que podemos interpretar como a variação de *nox* que é explicada por este modelo.
+
+## (b) Plot the polynomial fits for a range of different polynomial degrees (say, from 1 to 10), and report the associated residual sum of squares.
+
+```{r questao b}
+
+graus <- 1:10
+
+rss_valores <- numeric(length(graus))
+
+lista_graficos <- list()
+
+
+for (i in seq_along(graus)) {
+  
+  modelo_graus <- lm(nox ~ poly(dis, graus[i]))
+  predicoes$pred <- predict(modelo_graus, newdata = predicoes, se.fit = TRUE)$fit
+  predicoes$intervalo <- 2 * predict(modelo_graus, newdata = predicoes, se.fit = TRUE)$se.fit
+
+  lista_graficos[[i]] <- ggplot() +
+    geom_point(data = data.frame(dis = dis, nox = nox), aes(x = dis, y = nox), color = "gray15", size = 2, shape = 16) +
+    geom_line(data = predicoes, aes(x = dis, y = pred), color = "red", size = 1.5) +
+    geom_ribbon(data = predicoes, aes(x = dis, ymin = pred - intervalo, ymax = pred + intervalo), fill = "red", alpha = 0.4) +
+    labs(x = "Distances", y = "NOX", title = paste("Regressão Polinomial", graus[i])) +
+    theme_minimal() + 
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  rss_valores[i] <- sum(modelo_graus$residuals^2)
+  
+  
+}
+
+for (j in seq(1, length(lista_graficos), 2)){
+  
+  grid.arrange(grobs = lista_graficos[j:(j+1)], ncol = 2,  bottom = "_________________________________________________________________________", top = "_________________________________________________________________________")
+  
+}
+
+
+```
+
+Fazendo o mesmo procedimento da questão anterior, obtemos os gráficos das curvas para cada potência de *dis*. Vale reparar que, conforme aumentamos o grau do polinômio, o comportamento da curva fica um pouco esquisito, principalmente nas caudas, o que também acontece com o seus respectivos intervalos de confiança.
+
+```{r questao b2}
+dados_rss <- data.frame(Grau_polinômio = graus, Soma_quadrados = rss_valores)
+
+kable(dados_rss)
+```
+
+Para a tabela de soma residual dos quadrados, temos que ela diminui conforme aumentamos o grau do polinômio mas, apesar de termos essa medida, é válido utilizar técnicas de validação cruzada para avaliarmos de fato o desempenho deste modelo.
+
+## (c) Perform cross-validation or another approach to select the optimal degree for the polynomial, and explain your results.
+
+
+```{r questao c}
+
+cv.error <- rep(0, 10)
+
+for (i in 1:10) {
+  modelo2 <- glm(nox ~ poly(dis, graus[i]))
+  cv.error[i] <- cv.glm(dados, modelo2)$delta[1]
+}
+
+df <- data.frame(graus = graus, cv.error = cv.error)
+
+ggplot(data = df, aes(x = graus, y = cv.error)) +
+  geom_line(color = "blue") +
+  geom_point(shape = 15, size = 3, col = "steelblue") +
+  geom_text(aes(label = round(cv.error, 5)), vjust = 1.4, size = 3, color = "black") +
+  labs(x = "Grau do Polinômio", y = "Estimativa do erro",
+       title = "Erro da Validação Cruzada vs. Grau Polinomial da Regressão") +
+  scale_x_continuous(breaks = 1:10, labels = 1:10)+
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+Considerando o método de *Leave-One-Out Cross-Validation* (LOOCV), podemos observar pelo gráfico que a regressão polinomial cúbica é a que possui a menor estimativa do erro de predição, seguida pelas regressões de grau 4 e 2.
+
+O método usado acima funciona de forma a separar todos pontos dos dados e treinar o modelo incluindo todos estes pontos (exceto um). Comparando com os outros métodos, ele possui uma certa vantagem pois reduz o viés, mas, por outro lado, é um procedimento com a variância maior e mais caro computacionalmente.
+
+## (d) Use the bs() function to fit a regression spline to predict nox using dis. Report the output for the fit using four degrees of freedom. How did you choose the knots? Plot the resulting fit.
+
+```{r questao d}
+
+modelo3 <- lm(nox ~ bs(dis, df = 4))
+pred <- data.frame(dis = dis, fit = predict(modelo3, newdata = dados, se = TRUE)$fit, se = predict(modelo3, newdata = dados, se = TRUE)$se.fit)
+summary3 <- summary(modelo3)
+
+ggplot(data = pred, aes(x = dis, y = nox)) +
+  geom_point(color = "gray15", size = 2, shape = 16) +
+  geom_line(aes(y = fit), color = "red", size = 1.5) +
+  geom_ribbon(aes(ymin = fit - 2 * se, ymax = fit + 2 * se), fill = "red", alpha = 0.4) +
+  labs(x = "Distance", y = "NOX", title = "Regressão com bases B-Spline")  + theme_minimal() + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+A motivação de fazer um modelo de *Basis Functions* é substituir o modelo linear por um modelo que contenha uma família de funções da variável **X**. Assim, temos: $$y_i = \beta_o+\beta_1b_1(x_i)+\beta_2b_2(x_i)+...+\beta_kb_k(x_i)+\epsilon_i$$
+
+```{r questao d2}
+
+summary3
+
+```
+
+Nesse sentido, produzindo o modelo com a variável resposta *nox* e a variável preditora *dis* com quatro graus de liberdade, temos como *output* da função *summary* que todos os fatores do modelo são significativos. Além disso, temos um $R^2$ de $`r summary3$r.squared`$, que podemos interpretar como a variação de *nox* que é explicada por este modelo.
+
+Quanto aos nós, ao definirmos os graus de liberdade como 4, o R automaticamente escolhe 3 nós, que são localizados no primeiro, segundo e terceiro quartil de *dis*, que correspondem aos valores de $`r round(attr(bs(dis, df = 6), "knots"), 4)`$.
+
+## (e) Now fit a regression spline for a range of degrees of freedom, and plot the resulting fits and report the resulting RSS. Describe the results obtained.
+
+```{r questao e}
+
+graus_lib <- 1:10
+
+rss_valores2 <- numeric(length(graus_lib))
+
+lista_graficos2 <- list()
+
+for (i in seq_along(graus_lib)) {
+  modelo_spline <- lm(nox ~ bs(dis, df = graus_lib[i]))
+  predicoes_spline <- data.frame(dis = dis, fit = predict(modelo_spline, newdata = dados, se = TRUE)$fit, se = predict(modelo_spline, newdata = dados, se = TRUE)$se.fit)
+  
+  rss_valores2[i] <- sum(modelo_spline$residuals^2)
+  
+  lista_graficos2[[i]] <- ggplot() +
+  geom_point(data = data.frame(dis = dis, nox = nox), aes(x = dis, y = nox), color = "gray15", size = 2, shape = 16) +
+  geom_line(data = predicoes_spline, aes(y = fit, x = dis), color = "red", size = 1.5) +
+  geom_ribbon(data = predicoes_spline, aes(ymin = fit - 2 * se, ymax = fit + 2 * se, x = dis), fill = "red", alpha = 0.4) +
+  labs(x = "Distances", y = "NOX", title = paste("Regression Spline (df =", graus_lib[i], ")")) + 
+    theme_minimal() + 
+    theme(plot.title = element_text(hjust = 0.5))
+
+}
+
+for (j in seq(1, length(lista_graficos2), 2)){
+  
+  grid.arrange(grobs = lista_graficos2[j:(j+1)], ncol = 2,  bottom = "_________________________________________________________________________", top = "_________________________________________________________________________")
+  
+}
+
+
+```
+
+Assim como na sequência de *plots* para os modelos de regressão polinomial da questão **b)** percebemos que conforme aumentamos o grau de liberdade a curva assume um formato esquisito. Vale ressaltar que o R considerou os graus 1 e 2 muito pequenos e os substituiu pelo grau 3, por isso os 3 primeiros modelos produziram resultados iguais.
+
+```{r questao e2}
+
+dados_rss2 <- data.frame(Grau_de_liberdade = graus_lib, Soma_quadrados = rss_valores2)
+
+kable(dados_rss2)
+
+```
+
+Novamente, conforme diminuímos o grau de liberdade, obtemos uma soma residual dos quadrados menor.
+
+## (f) Perform cross-validation or another approach in order to select the best degrees of freedom for a regression spline on this data. Describe your results.
+
+```{r questao f}
+
+cv.error2 <- rep(0, 10)
+
+for (i in 1:10) {
+  modelo4 <- glm(nox ~ bs(dis, df = graus_lib[i]))
+  cv.error2[i] <- cv.glm(dados, modelo4, K = 10)$delta[1]
+}
+
+df2 <- data.frame(graus = graus, cv.error = cv.error2)
+
+ggplot(data = df2, aes(x = graus, y = cv.error)) +
+  geom_line(color = "blue") +
+  geom_point(shape = 15, size = 3, col = "steelblue") +
+  geom_text(aes(label = round(cv.error, 5)), vjust = 1.4, size = 3, color = "black") +
+  labs(x = "Grau de liberdade no modelo", y = "Estimativa do erro",
+       title = "Erro da Validação Cruzada vs. Grau de liberdade") +
+  scale_x_continuous(breaks = 1:10, labels = 1:10)+
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+Aqui foi usado o método *k-Fold Cross-Validation*, que produziu o resultado apresentado pelo gráfico. Podemos perceber que o menor erro foi no modelo com grau de liberdade igual à `r df2$graus[which.min(df2$cv.error)]`.
+
+O método usado acima funciona de forma a separar *k* grupos de observações de tamanho igual. O primeiro grupo é usado como um conjunto validador e o método se ajusta para os demais grupos, processo que é repetido *k* vezes, isolando cada grupo uma vez. Comparando com os outros métodos, ele possui uma certa vantagem pois reduz a variância, mas é inferior por ser mais enviesado, já que separa as observações em grupos maiores do que o método *LOOCV*.
+
